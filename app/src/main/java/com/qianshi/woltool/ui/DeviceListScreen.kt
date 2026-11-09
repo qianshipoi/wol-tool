@@ -28,12 +28,15 @@ import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -42,7 +45,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,7 +73,7 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun DeviceListScreen(
     devices: List<Device>,
@@ -97,23 +100,16 @@ fun DeviceListScreen(
         }
     }
 
+    // Expressive app bar: the large title collapses into the small title while scrolling.
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "WOL 唤醒",
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                        Text(
-                            text = "Wake-on-LAN",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
+            LargeFlexibleTopAppBar(
+                title = { Text("WOL 唤醒") },
+                subtitle = { Text("Wake-on-LAN") },
                 actions = {
                     IconButton(onClick = onShowHelp) {
                         Icon(Icons.Rounded.Info, contentDescription = "使用说明")
@@ -122,6 +118,7 @@ fun DeviceListScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                 ),
+                scrollBehavior = scrollBehavior,
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -170,6 +167,7 @@ fun DeviceListScreen(
                         waking = device.id in wakingIds,
                         onWake = { onWake(device) },
                         onEdit = { onEdit(device) },
+                        modifier = Modifier.animateItem(),
                     )
                 }
             }
@@ -284,6 +282,7 @@ private fun SectionHeader(count: Int) {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DeviceCard(
     device: Device,
@@ -291,9 +290,10 @@ private fun DeviceCard(
     waking: Boolean,
     onWake: () -> Unit,
     onEdit: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onEdit),
         shape = RoundedCornerShape(24.dp),
@@ -375,9 +375,9 @@ private fun DeviceCard(
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
                 ) {
                     if (waking) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
+                        // Expressive morphing loader instead of a plain spinner.
+                        LoadingIndicator(
+                            modifier = Modifier.size(18.dp),
                             color = LocalContentColor.current,
                         )
                         Spacer(Modifier.width(8.dp))
@@ -392,6 +392,15 @@ private fun DeviceCard(
                         Text("唤醒")
                     }
                 }
+            }
+
+            if (waking) {
+                Spacer(Modifier.height(12.dp))
+                // Expressive wavy indeterminate progress while the magic packets go out.
+                LinearWavyProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }

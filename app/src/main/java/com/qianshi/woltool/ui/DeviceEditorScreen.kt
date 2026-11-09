@@ -1,6 +1,12 @@
 package com.qianshi.woltool.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -27,21 +33,26 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -61,9 +72,10 @@ import com.qianshi.woltool.wol.NetworkUtils
 import com.qianshi.woltool.wol.WolPacket
 import com.qianshi.woltool.wol.WolSender
 import java.util.UUID
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun DeviceEditorScreen(
     initial: Device?,
@@ -74,6 +86,7 @@ fun DeviceEditorScreen(
     val context = LocalContext.current
     val sender = remember { WolSender() }
     val scope = rememberCoroutineScope()
+    val motionScheme = MaterialTheme.motionScheme
 
     var name by rememberSaveable(initial?.id) { mutableStateOf(initial?.name.orEmpty()) }
     var macField by rememberSaveable(initial?.id, stateSaver = TextFieldValue.Saver) {
@@ -88,8 +101,16 @@ fun DeviceEditorScreen(
     }
     var port by rememberSaveable(initial?.id) { mutableStateOf((initial?.port ?: 9).toString()) }
     var packetCount by rememberSaveable(initial?.id) {
-        mutableStateOf((initial?.packetCount ?: 3).toString())
+        mutableIntStateOf((initial?.packetCount ?: 3).coerceIn(1, 10))
     }
+
+    // The state-based Slider is controlled: the callback has to write the value back into the
+    // state, otherwise the thumb/track stay where they were while only our value changes.
+    val packetSliderState = rememberSliderState(
+        value = packetCount.toFloat(),
+        steps = 8,
+        trackRange = 1f..10f,
+    )
 
     var localNetwork by remember { mutableStateOf(NetworkUtils.current(context)) }
     var testing by remember { mutableStateOf(false) }
@@ -100,22 +121,20 @@ fun DeviceEditorScreen(
     val macValid = macDigitCount == 12 && WolPacket.parseMac(macField.text) != null
     val broadcastValid = NetworkUtils.isUsableBroadcastAddress(broadcast)
     val portValue = port.toIntOrNull()?.takeIf { it in 1..65535 }
-    val countValue = packetCount.toIntOrNull()?.takeIf { it in 1..10 }
     val nameValid = name.trim().isNotEmpty()
-    val canSave = nameValid && macValid && broadcastValid && portValue != null && countValue != null
-    val canTest = macValid && broadcastValid && portValue != null && countValue != null
+    val canSave = nameValid && macValid && broadcastValid && portValue != null
+    val canTest = macValid && broadcastValid && portValue != null
 
     fun buildDevice(): Device? {
         val macValue = WolPacket.normalizeMac(macField.text) ?: return null
         val portNumber = portValue ?: return null
-        val repeat = countValue ?: return null
         return Device(
             id = initial?.id ?: UUID.randomUUID().toString(),
             name = name.trim(),
             mac = macValue,
             broadcastAddress = broadcast.trim(),
             port = portNumber,
-            packetCount = repeat,
+            packetCount = packetCount,
             createdAt = initial?.createdAt ?: System.currentTimeMillis(),
             lastWakeAt = initial?.lastWakeAt,
             lastWakeSuccess = initial?.lastWakeSuccess,
@@ -264,38 +283,57 @@ fun DeviceEditorScreen(
                         imeAction = ImeAction.Next,
                     ),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = port,
-                        onValueChange = { port = it.filter(Char::isDigit).take(5) },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("端口") },
-                        singleLine = true,
-                        isError = port.isNotEmpty() && portValue == null,
-                        supportingText = {
-                            Text(if (port.isNotEmpty() && portValue == null) "1–65535" else "常用 9 或 7")
-                        },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                            imeAction = ImeAction.Next,
-                        ),
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = { port = it.filter(Char::isDigit).take(5) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("端口") },
+                    singleLine = true,
+                    isError = port.isNotEmpty() && portValue == null,
+                    supportingText = {
+                        Text(if (port.isNotEmpty() && portValue == null) "1–65535" else "常用 9 或 7")
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done,
+                    ),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "发送次数",
+                        style = MaterialTheme.typography.titleSmall,
                     )
-                    OutlinedTextField(
-                        value = packetCount,
-                        onValueChange = { packetCount = it.filter(Char::isDigit).take(2) },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("发送次数") },
-                        singleLine = true,
-                        isError = packetCount.isNotEmpty() && countValue == null,
-                        supportingText = {
-                            Text(if (packetCount.isNotEmpty() && countValue == null) "请输入 1–10" else "1–10 次")
+                    Spacer(Modifier.weight(1f))
+                    AnimatedContent(
+                        targetState = packetCount,
+                        transitionSpec = {
+                            (slideInVertically(motionScheme.fastSpatialSpec()) { height -> height / 2 } +
+                                fadeIn(motionScheme.fastEffectsSpec())) togetherWith
+                                (slideOutVertically(motionScheme.fastSpatialSpec()) { height -> -height / 2 } +
+                                    fadeOut(motionScheme.fastEffectsSpec()))
                         },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                            imeAction = ImeAction.Done,
-                        ),
-                    )
+                        label = "packetCount",
+                    ) { count ->
+                        Text(
+                            text = "$count 次",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
+                Slider(
+                    state = packetSliderState,
+                    onValueChange = { value ->
+                        packetSliderState.value = value
+                        packetCount = value.roundToInt().coerceIn(1, 10)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "左右拖动调整，1–10 次；次数越多，唤醒成功率越高。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Text(
                     text = "Wake-on-LAN 数据会以 UDP 广播发送到上述地址和端口，连续发送多个魔术包可提高成功率。",
                     style = MaterialTheme.typography.bodySmall,
@@ -344,9 +382,9 @@ fun DeviceEditorScreen(
                         shape = RoundedCornerShape(14.dp),
                     ) {
                         if (testing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
+                            LoadingIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = LocalContentColor.current,
                             )
                             Spacer(Modifier.width(8.dp))
                             Text("发送中…")

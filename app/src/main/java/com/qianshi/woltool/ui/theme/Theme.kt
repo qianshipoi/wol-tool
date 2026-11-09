@@ -2,7 +2,9 @@ package com.qianshi.woltool.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -70,6 +72,11 @@ private val DarkColors = darkColorScheme(
     error = DarkError,
 )
 
+/**
+ * Wraps the app in Material 3 Expressive: components get the expressive motion
+ * scheme (springy press / reveal / resize animations) on top of the brand colors.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun WolToolTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -85,8 +92,9 @@ fun WolToolTheme(
         else -> LightColors
     }
 
-    MaterialTheme(
+    MaterialExpressiveTheme(
         colorScheme = colorScheme,
+        motionScheme = MotionScheme.expressive(),
         typography = WolToolTypography,
         content = content,
     )

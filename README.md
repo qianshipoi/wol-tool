@@ -4,9 +4,10 @@
 
 ## 功能
 
-- **设备配置**：设备名称、MAC 地址、广播地址、UDP 端口、发送次数。
+- **设备配置**：设备名称、MAC 地址、广播地址、UDP 端口、发送次数（1–10 次拖拽条）。
 - **MAC 掩码输入**：每输入两位十六进制自动补冒号，支持直接粘贴完整 MAC，并实时显示已输入位数。
 - **一键唤醒**：主界面按设备展示，点按「唤醒」立即发送 Wake-on-LAN 魔术包。
+- **Material 3 Expressive 界面**：页面进入 / 退出使用官方 `MotionScheme.expressive()` 动效规格；列表用会随滚动折叠的 `LargeFlexibleTopAppBar`；发送次数是官方 M3 拖拽条（刻度吸附 + 手柄按压拉伸）；发送时用变形 `LoadingIndicator` 与波浪 `LinearWavyProgressIndicator`；列表增删有过渡动画。
 - **智能填充**：自动读取当前 Wi-Fi / 有线网络的 IPv4 地址和前缀，推导子网广播地址（如 `192.168.1.255`）。
 - **发送前测试**：在编辑页直接发送测试魔术包，无需保存即可验证配置。
 - **桌面小组件**：2×1 尺寸，可在添加时选择设备；之后点按小组件直接唤醒，并显示发送结果与时间。
@@ -26,6 +27,10 @@
 | --- | --- |
 | ![MAC 输入中](docs/screenshots/20-mac-mask-partial.png) | ![MAC 输入完成](docs/screenshots/21-mac-mask-full.png) |
 
+| 发送次数拖拽条 | 发送中的变形加载与波浪进度 |
+| --- | --- |
+| ![发送次数](docs/screenshots/22-packet-slider.png) | ![发送中](docs/screenshots/23-wake-progress.png) |
+
 | 桌面小组件 | 点按小组件直接唤醒 |
 | --- | --- |
 | ![桌面小组件](docs/screenshots/11-home-widget.png) | ![小组件唤醒](docs/screenshots/12-widget-wake.png) |
@@ -44,7 +49,12 @@
 
 ## 构建
 
-需要 JDK 17 和 Android SDK（compileSdk 36）。项目自带 Gradle Wrapper。
+需要 JDK 17 和 Android SDK（compileSdk 37，即 Android 17）。项目自带 Gradle Wrapper（9.3.1，指向国内镜像）。首次构建前先装平台包：
+
+```bash
+sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+```
+
 
 ```bash
 ./gradlew :app:assembleDebug
@@ -64,15 +74,16 @@ adb install -r dist/WolTool-debug.apk
 ./gradlew :app:testDebugUnitTest
 ```
 
-技术栈：Kotlin 2.2.21、Jetpack Compose（Material 3）、AGP 8.13.0、Gradle 8.13，`minSdk 26` / `targetSdk 36`。
+技术栈：Kotlin 2.4.21（AGP 9 内置 Kotlin 支持）、Jetpack Compose 1.12（BOM 2026.09.00）、Material 3 1.5.0-rc01、AGP 9.1.1、Gradle 9.3.1；`compileSdk 37`（Android 17）/ `minSdk 26` / `targetSdk 36`。
 
 ## 使用
 
 1. 打开 App，点按「添加设备」。
 2. 填写设备名称与 MAC 地址（支持 `AA:BB:CC:DD:EE:FF`、`AA-BB-...`、`AABB...` 等格式）。
 3. 广播地址通常点击「自动」即可填入当前子网广播地址；端口保持默认 `9`。
-4. 点按「发送测试魔术包」验证配置，成功后保存。
-5. 在主界面点按设备卡片上的「唤醒」发送唤醒指令。
+4. 左右拖动「发送次数」拖拽条选择 1–10 次（默认 3 次，次数越多成功率越高）。
+5. 点按「发送测试魔术包」验证配置，成功后保存。
+6. 在主界面点按设备卡片上的「唤醒」发送唤醒指令。
 
 ### 添加桌面小组件
 
@@ -123,6 +134,9 @@ adb install -r dist/WolTool-debug.apk
 - 设备配置保存在 `SharedPreferences`（JSON），不依赖数据库；读取失败时保留原始数据备份，避免静默丢失。
 - 小组件绑定按实例 ID 隔离，支持多个设备小组件；删除设备后小组件降级为「设备已删除」并提供点按重选入口。
 - 小组件绑定信息不参与云备份，并在系统恢复后自动清空，避免 launcher 重新分配 ID 后唤醒错设备。
+- 界面使用 Material 3 Expressive：`MaterialExpressiveTheme` + `MotionScheme.expressive()` 提供官方弹性按压、形变与过渡曲线；页面切换用 `AnimatedContent` 套用 `MaterialTheme.motionScheme` 的 `defaultSpatialSpec` / `fastSpatialSpec` 与对应 effects spec；发送次数直接用官方 `Slider`（`rememberSliderState` + 9 个刻度），手柄与轨道动效由组件自带。
+- 其余组件同样走官方 Expressive 动效：列表标题用 `LargeFlexibleTopAppBar` + `exitUntilCollapsedScrollBehavior`（随滚动收缩），发送中的按钮用 `LoadingIndicator`（多边形形变），设备卡片里叠加 `LinearWavyProgressIndicator`（波浪进度）。
+- 注意：material3 1.5 的 `Slider(state = ...)` 是**受控**组件，`onValueChange` 里必须把值写回 `state.value`（组件自己不会改 state），否则会出现「数字变了但手柄/进度不动」的现象。
 
 ## 权限
 
@@ -151,7 +165,7 @@ app/src/main/java/com/qianshi/woltool/
 │   ├── DeviceEditorScreen.kt    # 添加 / 编辑 / 测试
 │   ├── WidgetConfigScreen.kt    # 小组件配置页
 │   ├── WakeHelpDialog.kt        # 使用条件与排查
-│   └── theme/                   # Material 3 主题
+│   └── theme/                   # Material 3 Expressive 主题
 └── widget/
     ├── WolWidgetProvider.kt     # 小组件点击发送与状态刷新
     └── WidgetConfigActivity.kt  # 小组件选择设备
@@ -176,5 +190,8 @@ app/src/main/java/com/qianshi/woltool/
 ## 验证情况
 
 - `./gradlew :app:testDebugUnitTest`：12 个单元测试全部通过（魔术包结构、MAC 解析/掩码、IPv4/广播地址校验）。
-- `./gradlew :app:assembleDebug`：构建成功，产物约 18 MB（debug 包包含 Compose 调试工具）。
+- `./gradlew :app:assembleDebug`：构建成功，产物约 19 MB（debug 包包含 Compose 调试工具）。
 - Android 14（API 34）模拟器实测：添加 / 编辑 / 删除设备、主界面唤醒、小组件添加与选择设备、**强制停止 App 后点按小组件冷启动发送**、删除设备后小组件的降级提示与重新配置。
+- Material 3 Expressive 改版同样在模拟器实测：拖拽发送次数 3 → 8 后保存 / 唤醒正常；页面进入与退出的位移动画（`MotionScheme` 规格）在 Android 14（API 34）与 Android 16（API 36）上均正常。
+- Expressive 组件实测：拖动滑块时手柄与进度同步移动（3 → 9 保存为 `packetCount: 9`）；折叠标题栏在列表滚动时收缩；发送过程中抓到 `LoadingIndicator` 多边形形变与卡片底部波浪进度条；编辑页「发送测试魔术包」的发送中状态同样显示变形加载图标。
+- 工具链已升级到 AGP 9.1.1 + Gradle 9.3.1 + compileSdk 37（Android 17）：`compileSdk 37` 只影响编译，`minSdk 26` / `targetSdk 36` 未变，Android 8.0–16 的机型仍可正常安装运行，Android 16 上已实测安装、启动、编辑、保存与唤醒全流程。
