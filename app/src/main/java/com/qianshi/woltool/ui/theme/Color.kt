@@ -1,0 +1,61 @@
+package com.qianshi.woltool.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+val TealPrimary = Color(0xFF006B5F)
+val TealOnPrimary = Color(0xFFFFFFFF)
+val TealPrimaryContainer = Color(0xFF75F8E4)
+val TealOnPrimaryContainer = Color(0xFF00201C)
+
+val TealSecondary = Color(0xFF4A635F)
+val TealOnSecondary = Color(0xFFFFFFFF)
+val TealSecondaryContainer = Color(0xFFCCE8E2)
+val TealOnSecondaryContainer = Color(0xFF05201C)
+
+val LightBackground = Color(0xFFF4FBF8)
+val LightSurface = Color(0xFFF4FBF8)
+val LightSurfaceVariant = Color(0xFFDAE5E1)
+val LightOnSurface = Color(0xFF191C1B)
+val LightOnSurfaceVariant = Color(0xFF3F4947)
+val LightOutline = Color(0xFF6F7977)
+val LightOutlineVariant = Color(0xFFBEC9C6)
+val LightError = Color(0xFFBA1A1A)
+
+val LightSurfaceContainerLowest = Color(0xFFFFFFFF)
+val LightSurfaceContainerLow = Color(0xFFFFFFFF)
+val LightSurfaceContainer = Color(0xFFE8F2EE)
+val LightSurfaceContainerHigh = Color(0xFFE2ECE8)
+val LightSurfaceContainerHighest = Color(0xFFDCE6E2)
+val LightSurfaceDim = Color(0xFFD5DBD8)
+val LightSurfaceBright = Color(0xFFF4FBF8)
+val LightInverseSurface = Color(0xFF2E3130)
+val LightInverseOnSurface = Color(0xFFEFF1F0)
+
+val DarkPrimary = Color(0xFF53DBC9)
+val DarkOnPrimary = Color(0xFF003731)
+val DarkPrimaryContainer = Color(0xFF005048)
+val DarkOnPrimaryContainer = Color(0xFF75F8E4)
+
+val DarkSecondary = Color(0xFFB1CCC6)
+val DarkOnSecondary = Color(0xFF1C3531)
+val DarkSecondaryContainer = Color(0xFF334B47)
+val DarkOnSecondaryContainer = Color(0xFFCCE8E2)
+
+val DarkBackground = Color(0xFF0E1513)
+val DarkSurface = Color(0xFF0E1513)
+val DarkSurfaceVariant = Color(0xFF3F4947)
+val DarkOnSurface = Color(0xFFDDE4E1)
+val DarkOnSurfaceVariant = Color(0xFFBEC9C6)
+val DarkOutline = Color(0xFF899391)
+val DarkOutlineVariant = Color(0xFF3F4947)
+val DarkError = Color(0xFFFFB4AB)
+
+val DarkSurfaceContainerLowest = Color(0xFF090F0E)
+val DarkSurfaceContainerLow = Color(0xFF161D1B)
+val DarkSurfaceContainer = Color(0xFF1A211F)
+val DarkSurfaceContainerHigh = Color(0xFF242B29)
+val DarkSurfaceContainerHighest = Color(0xFF2F3634)
+val DarkSurfaceDim = Color(0xFF0E1513)
+val DarkSurfaceBright = Color(0xFF343B39)
+val DarkInverseSurface = Color(0xFFDDE4E1)
+val DarkInverseOnSurface = Color(0xFF2B3230)

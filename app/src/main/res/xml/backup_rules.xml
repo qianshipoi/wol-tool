@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Widget bindings reference launcher-assigned ids and must not be restored. -->
+    <exclude
+        domain="sharedpref"
+        path="wol_widgets.xml" />
+</full-backup-content>

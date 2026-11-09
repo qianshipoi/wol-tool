@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">WOL 唤醒</string>
+    <string name="widget_description">一键唤醒局域网内支持 Wake-on-LAN 的设备</string>
+    <string name="widget_default_name">设备名称</string>
+    <string name="widget_status_idle">点按唤醒</string>
+</resources>
