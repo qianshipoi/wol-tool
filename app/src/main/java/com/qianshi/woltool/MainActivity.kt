@@ -1,27 +1,33 @@
 package com.qianshi.woltool
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qianshi.woltool.ui.DeviceEditorScreen
@@ -29,6 +35,7 @@ import com.qianshi.woltool.ui.DeviceListScreen
 import com.qianshi.woltool.ui.RemoteScreen
 import com.qianshi.woltool.ui.WakeHelpDialog
 import com.qianshi.woltool.ui.theme.WolToolTheme
+import kotlinx.coroutines.CancellationException
 
 class MainActivity : ComponentActivity() {
 
@@ -43,7 +50,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun WolApp(viewModel: WolViewModel = viewModel()) {
     val devices by viewModel.devices.collectAsStateWithLifecycle()
@@ -54,6 +60,9 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
     var showRemote by rememberSaveable { mutableStateOf(false) }
     var showHelp by rememberSaveable { mutableStateOf(false) }
 
+    val overlayVisible = editorId != null || showRemote
+    var backProgress by remember { mutableFloatStateOf(0f) }
+
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(viewModel) {
@@ -62,60 +71,126 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
         }
     }
 
-    val motionScheme = MaterialTheme.motionScheme
+    fun closeOverlay() {
+        editorId = null
+        showRemote = false
+    }
 
-    if (showRemote) {
-        RemoteScreen(
-            devices = devices,
-            onBack = { showRemote = false },
-        )
-    } else {
-        AnimatedContent(
-            targetState = editorId,
-            // Motion comes from the Material 3 Expressive motion scheme instead of hand-tuned specs.
-            transitionSpec = {
-                if (targetState != null) {
-                    // List → editor: the editor springs in from the right while the list recedes.
-                    (slideInHorizontally(motionScheme.defaultSpatialSpec()) { width -> width / 3 } +
-                        fadeIn(motionScheme.defaultEffectsSpec())) togetherWith
-                        (slideOutHorizontally(motionScheme.fastSpatialSpec()) { width -> -width / 10 } +
-                            fadeOut(motionScheme.fastEffectsSpec()) +
-                            scaleOut(motionScheme.fastSpatialSpec(), targetScale = 0.94f))
-                } else {
-                    // Editor → list: the editor slides away to the right and springs back out of view.
-                    (slideInHorizontally(motionScheme.fastSpatialSpec()) { width -> -width / 10 } +
-                        fadeIn(motionScheme.fastEffectsSpec()) +
-                        scaleIn(motionScheme.fastSpatialSpec(), initialScale = 0.94f)) togetherWith
-                        (slideOutHorizontally(motionScheme.defaultSpatialSpec()) { width -> width / 3 } +
-                            fadeOut(motionScheme.defaultEffectsSpec()))
+    LaunchedEffect(overlayVisible) {
+        if (!overlayVisible) backProgress = 0f
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        PredictiveBackHandler(enabled = overlayVisible) { progress ->
+            try {
+                progress.collect { event ->
+                    backProgress = event.progress
                 }
-            },
-            label = "page",
-        ) { targetId ->
-            if (targetId != null) {
-                DeviceEditorScreen(
-                    initial = devices.firstOrNull { it.id == targetId },
-                    onBack = { editorId = null },
-                    onSave = { device ->
-                        viewModel.save(device)
-                        editorId = null
+                closeOverlay()
+            } catch (cancellation: CancellationException) {
+                backProgress = 0f
+                throw cancellation
+            }
+        }
+    } else {
+        // Android 12 and below have no predictive-back progress. Keep the normal
+        // back behavior; the overlay is simply removed without a preview.
+        BackHandler(enabled = overlayVisible) {
+            closeOverlay()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Keep the list composed underneath so the predictive-back gesture has a
+        // real previous page to reveal. It grows from 0.92 to full size as the
+        // foreground page shrinks.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    // The list stays full size underneath. The foreground page
+                    // shrinks during the gesture, revealing this page in the
+                    // margins around it.
+                    scaleX = 1f
+                    scaleY = 1f
+                }
+                .then(
+                    if (overlayVisible) {
+                        Modifier.clearAndSetSemantics { }
+                    } else {
+                        Modifier
                     },
-                    onDelete = { device ->
-                        viewModel.delete(device)
-                        editorId = null
+                ),
+        ) {
+            DeviceListScreen(
+                devices = devices,
+                wakingIds = wakingIds,
+                snackbarHostState = snackbarHostState,
+                onWake = viewModel::wake,
+                onAdd = { editorId = "" },
+                onEdit = { device -> editorId = device.id },
+                onOpenRemote = { showRemote = true },
+                onShowHelp = { showHelp = true },
+            )
+        }
+
+        if (overlayVisible) {
+            // A scrim both dims the list and consumes input so the background
+            // screen cannot be scrolled or clicked while a page is open.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = 0.18f * backProgress
+                    }
+                    .background(Color.Black)
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent(PointerEventPass.Initial)
+                                    .changes
+                                    .forEach { change -> change.consume() }
+                            }
+                        }
                     },
-                )
-            } else {
-                DeviceListScreen(
-                    devices = devices,
-                    wakingIds = wakingIds,
-                    snackbarHostState = snackbarHostState,
-                    onWake = viewModel::wake,
-                    onAdd = { editorId = "" },
-                    onEdit = { device -> editorId = device.id },
-                    onOpenRemote = { showRemote = true },
-                    onShowHelp = { showHelp = true },
-                )
+            )
+
+            val cornerRadius = 24.dp * backProgress
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        // A slightly stronger shrink than the system default so
+                        // the list's card content (not only its padding) becomes
+                        // visible in the margins on a wide gesture.
+                        val scale = 1f - 0.16f * backProgress
+                        scaleX = scale
+                        scaleY = scale
+                        shape = RoundedCornerShape(cornerRadius)
+                        clip = true
+                        shadowElevation = 24.dp.toPx() * backProgress
+                    },
+            ) {
+                if (showRemote) {
+                    RemoteScreen(
+                        devices = devices,
+                        onBack = ::closeOverlay,
+                    )
+                } else {
+                    DeviceEditorScreen(
+                        initial = devices.firstOrNull { it.id == editorId },
+                        onBack = ::closeOverlay,
+                        onSave = { device ->
+                            viewModel.save(device)
+                            closeOverlay()
+                        },
+                        onDelete = { device ->
+                            viewModel.delete(device)
+                            closeOverlay()
+                        },
+                        handleSystemBack = false,
+                    )
+                }
             }
         }
     }

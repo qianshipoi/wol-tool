@@ -82,6 +82,7 @@ fun DeviceEditorScreen(
     onBack: () -> Unit,
     onSave: (Device) -> Unit,
     onDelete: (Device) -> Unit,
+    handleSystemBack: Boolean = true,
 ) {
     val context = LocalContext.current
     val sender = remember { WolSender(context.applicationContext) }
@@ -141,7 +142,9 @@ fun DeviceEditorScreen(
         )
     }
 
-    BackHandler(onBack = onBack)
+    if (handleSystemBack) {
+        BackHandler(onBack = onBack)
+    }
 
     Scaffold(
         modifier = Modifier.imePadding(),

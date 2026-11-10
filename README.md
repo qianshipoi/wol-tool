@@ -8,6 +8,7 @@
 - **MAC 掩码输入**：每输入两位十六进制自动补冒号，支持直接粘贴完整 MAC，并实时显示已输入位数。
 - **一键唤醒**：主界面按设备展示，点按「唤醒」立即发送 Wake-on-LAN 魔术包。
 - **Material 3 Expressive 界面**：页面进入 / 退出使用官方 `MotionScheme.expressive()` 动效规格；列表用会随滚动折叠的 `LargeFlexibleTopAppBar`；发送次数是官方 M3 拖拽条（刻度吸附 + 手柄按压拉伸）；发送时用变形 `LoadingIndicator` 与波浪 `LinearWavyProgressIndicator`；列表增删有过渡动画。
+- **预测式返回动效**：Android 13+ 使用 `PredictiveBackHandler`，拖动返回手势时编辑页 / 远程页实时缩小并显示圆角，下层设备列表从四周露出；松手完成返回，取消手势恢复。Android 12 及以下自动回退为普通返回。
 - **智能填充**：自动读取当前 Wi-Fi / 有线网络的 IPv4 地址和前缀，推导子网广播地址（如 `192.168.1.255`）。
 - **发送前测试**：在编辑页直接发送测试魔术包，无需保存即可验证配置。
 - **桌面小组件**：2×1 尺寸，可在添加时选择设备；之后点按小组件直接唤醒，并显示发送结果与时间。
@@ -39,6 +40,10 @@
 | 中继服务 | 远程发送 |
 | --- | --- |
 | ![中继服务](docs/screenshots/24-remote-relay.png) | ![远程发送](docs/screenshots/25-remote-send.png) |
+
+| 预测式返回 |
+| --- |
+| ![预测式返回](docs/screenshots/26-predictive-back.png) |
 
 > 截图来自 Android 14（API 34）模拟器，2×1 小组件的点击发送已实际验证（无需打开 App）。远程发送截图中使用本机回环地址做端到端测试，实际使用时填写中继手机的 Tailscale 地址。
 
@@ -181,6 +186,15 @@ curl -X POST -H "Authorization: Bearer <token>" \
 3. 在过滤栏输入 `udp.port == 9`，然后在手机上点「唤醒」。
 4. 应看到：源地址为手机 IP、目的地址为子网广播地址（如 `192.168.153.255`）、长度为 102 字节的 UDP 包；负载为 6 个 `FF` + MAC 重复 16 次。
 
+## 预测式返回实现
+
+- 主界面列表始终保留在底层；编辑页 / 远程页作为覆盖层，使用 `PredictiveBackHandler` 接收返回手势进度。
+- 覆盖层根据 `BackEventCompat.progress` 实时缩放（1.0 → 0.84）、增加圆角、阴影和暗色 scrim；底层列表保持全尺寸，因此会从四周露出。
+- 松手完成时关闭覆盖层；取消手势时进度回到 0，页面恢复原状。
+- Android 13+ 使用 `PredictiveBackHandler`；Android 12 及以下没有预测式返回 API，自动使用普通 `BackHandler` 直接返回。
+- Manifest 已启用 `android:enableOnBackInvokedCallback="true"`。
+- 编辑页在小组件配置流程中仍可独立处理返回（`handleSystemBack` 参数）。
+
 ## 实现说明
 
 - 魔术包格式：6 字节 `0xFF` + 目标 MAC 重复 16 次，共 102 字节。
@@ -263,6 +277,7 @@ Android 会限制后台服务。请给中继 App 和 Tailscale 关闭电池优�
 - `./gradlew :app:assembleDebug`：构建成功。
 - Android 14（API 34）模拟器实测：添加 / 编辑 / 删除设备、主界面唤醒、小组件添加与选择设备、**强制停止 App 后点按小组件冷启动发送**、删除设备后小组件的降级提示与重新配置。
 - 远程链路实测：中继 HTTP 服务启动后通过 `adb forward` 访问 `/health`、`/api/devices`、`/api/wake`，鉴权、设备列表和 3 个魔术包发送均正常；远程端 UI 读取中继设备并触发唤醒成功。
+- 预测式返回实测（Android 14 / API 34）：长滑返回时编辑页缩小并露出下层列表；取消手势后编辑页恢复；三键导航下按返回键正常返回。Android 12 及以下的普通 `BackHandler` 分支已编译验证。
 - Material 3 Expressive 改版同样在模拟器实测：拖拽发送次数 3 → 8 后保存 / 唤醒正常；页面进入与退出的位移动画（`MotionScheme` 规格）在 Android 14（API 34）与 Android 16（API 36）上均正常。
 - Expressive 组件实测：拖动滑块时手柄与进度同步移动（3 → 9 保存为 `packetCount: 9`）；折叠标题栏在列表滚动时收缩；发送过程中抓到 `LoadingIndicator` 多边形形变与卡片底部波浪进度条；编辑页「发送测试魔术包」的发送中状态同样显示变形加载图标。
 - 工具链已升级到 AGP 9.1.1 + Gradle 9.3.1 + compileSdk 37（Android 17）：`compileSdk 37` 只影响编译，`minSdk 26` / `targetSdk 36` 未变，Android 8.0–16 的机型仍可正常安装运行，Android 16 上已实测安装、启动、编辑、保存与唤醒全流程。
