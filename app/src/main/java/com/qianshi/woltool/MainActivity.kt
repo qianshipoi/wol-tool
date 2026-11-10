@@ -3,6 +3,9 @@ package com.qianshi.woltool
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.setContent
@@ -62,6 +65,21 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
 
     val overlayVisible = editorId != null || showRemote
     var backProgress by remember { mutableFloatStateOf(0f) }
+    val openProgress = remember { Animatable(0f) }
+
+    LaunchedEffect(overlayVisible) {
+        if (overlayVisible) {
+            openProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 280,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+        } else {
+            openProgress.snapTo(0f)
+        }
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -141,7 +159,10 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = 0.18f * backProgress
+                        // Fade in while the page enters, and darken the list
+                        // while the user holds a predictive-back gesture.
+                        val entry = openProgress.value
+                        alpha = 0.18f * maxOf(1f - entry, backProgress)
                     }
                     .background(Color.Black)
                     .pointerInput(Unit) {
@@ -155,20 +176,31 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                     },
             )
 
-            val cornerRadius = 24.dp * backProgress
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        // A slightly stronger shrink than the system default so
-                        // the list's card content (not only its padding) becomes
-                        // visible in the margins on a wide gesture.
-                        val scale = 1f - 0.16f * backProgress
+                        val entry = openProgress.value
+                        // Page-entry: rise slightly from below and scale up to
+                        // full size. Predictive back then shrinks the page from
+                        // that full-size state.
+                        val scale = (0.94f + 0.06f * entry) *
+                            (1f - 0.16f * backProgress)
                         scaleX = scale
                         scaleY = scale
-                        shape = RoundedCornerShape(cornerRadius)
+                        translationY = (1f - entry) * 28.dp.toPx()
+                        alpha = entry
+                        shape = RoundedCornerShape(
+                            maxOf(
+                                28.dp.toPx() * (1f - entry),
+                                24.dp.toPx() * backProgress,
+                            ).toDp(),
+                        )
                         clip = true
-                        shadowElevation = 24.dp.toPx() * backProgress
+                        shadowElevation = maxOf(
+                            12.dp.toPx() * (1f - entry),
+                            24.dp.toPx() * backProgress,
+                        )
                     },
             ) {
                 if (showRemote) {
