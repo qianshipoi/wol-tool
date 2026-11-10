@@ -7,6 +7,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -38,6 +42,8 @@ import com.qianshi.woltool.ui.RemoteScreen
 import com.qianshi.woltool.ui.WakeHelpDialog
 import com.qianshi.woltool.ui.theme.WolToolTheme
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 private sealed interface PendingRoute {
     data class Editor(val id: String) : PendingRoute
@@ -73,6 +79,9 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
     var splashVisible by remember { mutableStateOf(false) }
     var splashOrigin by remember { mutableStateOf(Offset.Unspecified) }
     var pendingRoute by remember { mutableStateOf<PendingRoute?>(null) }
+    var pageEntryProgress by remember { mutableFloatStateOf(1f) }
+    var entryJob by remember { mutableStateOf<Job?>(null) }
+    val entryScope = rememberCoroutineScope()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -83,12 +92,33 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
     }
 
     fun openWithSplash(route: PendingRoute, origin: Offset) {
+        entryJob?.cancel()
+        pageEntryProgress = 1f
         pendingRoute = route
         splashOrigin = origin
         splashVisible = true
     }
 
+    fun openDefault() {
+        entryJob?.cancel()
+        pageEntryProgress = 0f
+        entryJob = entryScope.launch {
+            animate(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 240,
+                    easing = FastOutSlowInEasing,
+                ),
+            ) { value, _ ->
+                pageEntryProgress = value
+            }
+        }
+    }
+
     fun closeOverlay() {
+        entryJob?.cancel()
+        pageEntryProgress = 1f
         editorId = null
         showRemote = false
     }
@@ -143,22 +173,19 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                     )
                 },
                 onEdit = { device ->
-                    openWithSplash(
-                        route = PendingRoute.Editor(device.id),
-                        origin = Offset.Unspecified,
-                    )
+                    openDefault()
+                    editorId = device.id
                 },
                 onOpenRemote = {
-                    openWithSplash(
-                        route = PendingRoute.Remote,
-                        origin = Offset.Unspecified,
-                    )
+                    openDefault()
+                    showRemote = true
                 },
                 onShowHelp = { showHelp = true },
             )
         }
 
         if (overlayVisible) {
+            val pageEntry = pageEntryProgress
             // A scrim dims the list while the user holds a predictive-back
             // gesture. It also blocks input to the background screen.
             Box(
@@ -181,7 +208,12 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        val scale = 1f - 0.16f * backProgress
+                        // The add flow uses the color splash; other entries use
+                        // a short default fade + scale instead of the splash.
+                        alpha = pageEntry
+                        val entryScale = 0.96f + 0.04f * pageEntry
+                        val backScale = 1f - 0.16f * backProgress
+                        val scale = entryScale * backScale
                         scaleX = scale
                         scaleY = scale
                         shape = RoundedCornerShape(24.dp * backProgress)
