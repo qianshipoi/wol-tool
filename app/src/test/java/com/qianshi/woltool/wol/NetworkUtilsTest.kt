@@ -44,6 +44,16 @@ class NetworkUtilsTest {
     }
 
     @Test
+    fun `recognizes tailscale cgnat addresses`() {
+        assertTrue(NetworkUtils.isTailscaleIpv4("100.64.0.1"))
+        assertTrue(NetworkUtils.isTailscaleIpv4("100.101.102.103"))
+        assertTrue(NetworkUtils.isTailscaleIpv4("100.127.255.254"))
+        assertFalse(NetworkUtils.isTailscaleIpv4("100.63.0.1"))
+        assertFalse(NetworkUtils.isTailscaleIpv4("100.128.0.1"))
+        assertFalse(NetworkUtils.isTailscaleIpv4("192.168.1.10"))
+    }
+
+    @Test
     fun `accepts only usable broadcast targets`() {
         assertTrue(NetworkUtils.isUsableBroadcastAddress("192.168.1.255"))
         assertTrue(NetworkUtils.isUsableBroadcastAddress("10.0.2.255"))

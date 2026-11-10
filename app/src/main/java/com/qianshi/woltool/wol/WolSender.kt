@@ -1,5 +1,6 @@
 package com.qianshi.woltool.wol
 
+import android.content.Context
 import com.qianshi.woltool.data.Device
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -11,7 +12,7 @@ import java.net.InetAddress
 /**
  * Sends Wake-on-LAN magic packets as UDP broadcasts.
  */
-class WolSender {
+class WolSender(private val appContext: Context) {
 
     data class SendResult(
         val success: Boolean,
@@ -47,6 +48,9 @@ class WolSender {
 
         return try {
             DatagramSocket().use { socket ->
+                // Keep the magic packet on the physical LAN even while Tailscale
+                // (or another VPN/exit node) is the default route.
+                runCatching { NetworkUtils.lanNetwork(appContext)?.bindSocket(socket) }
                 socket.broadcast = true
                 val address = InetAddress.getByName(broadcastAddress)
                 repeat(repeat) { index ->

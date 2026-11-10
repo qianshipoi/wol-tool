@@ -1,6 +1,6 @@
 # WOL 唤醒（Wake-on-LAN）
 
-一个 Android 局域网唤醒工具：配置目标设备的 MAC 地址和广播地址后，可在应用内一键唤醒，也可以把设备添加到桌面小组件，**点按小组件即可直接发送魔术包，无需先打开 App**。
+一个 Android 局域网唤醒工具：配置目标设备的 MAC 地址和广播地址后，可在应用内一键唤醒，也可以把设备添加到桌面小组件，**点按小组件即可直接发送魔术包，无需先打开 App**；借助 Tailscale 中继，还能从外网远程唤醒。
 
 ## 功能
 
@@ -11,6 +11,7 @@
 - **智能填充**：自动读取当前 Wi-Fi / 有线网络的 IPv4 地址和前缀，推导子网广播地址（如 `192.168.1.255`）。
 - **发送前测试**：在编辑页直接发送测试魔术包，无需保存即可验证配置。
 - **桌面小组件**：2×1 尺寸，可在添加时选择设备；之后点按小组件直接唤醒，并显示发送结果与时间。
+- **远程唤醒（Tailscale 中继）**：一台手机在家里做中继，另一台手机在外网通过 Tailscale 发指令，由中继在局域网广播魔术包。
 - **无广告、无需登录、无需目标设备安装软件**。
 
 ## 截图
@@ -35,7 +36,11 @@
 | --- | --- |
 | ![桌面小组件](docs/screenshots/11-home-widget.png) | ![小组件唤醒](docs/screenshots/12-widget-wake.png) |
 
-> 截图来自 Android 14（API 34）模拟器，2×1 小组件的点击发送已实际验证（无需打开 App）。
+| 中继服务 | 远程发送 |
+| --- | --- |
+| ![中继服务](docs/screenshots/24-remote-relay.png) | ![远程发送](docs/screenshots/25-remote-send.png) |
+
+> 截图来自 Android 14（API 34）模拟器，2×1 小组件的点击发送已实际验证（无需打开 App）。远程发送截图中使用本机回环地址做端到端测试，实际使用时填写中继手机的 Tailscale 地址。
 
 ## 环境要求
 
@@ -94,6 +99,56 @@ adb install -r dist/WolTool-debug.apk
 
 > 长按已添加的小组件可重新配置；删除设备后，小组件会显示「设备已删除」，点按可重新选择设备。
 
+## 远程唤醒（Tailscale 中继）
+
+Wake-on-LAN 是二层广播，**不能直接跨 Tailscale 或互联网发送**。本项目采用两台手机的中继方案：
+
+```text
+远程手机  --Tailscale 100.x-->  中继手机  --UDP 广播-->  目标电脑
+(外网)                         (家里的局域网)          (同一局域网/有线)
+```
+
+中继手机必须和目标电脑在同一局域网，远程手机只负责通过 Tailscale 给中继发 HTTP 指令。
+
+### 配置步骤
+
+1. 两台手机都安装 Tailscale，登录同一个 tailnet，并确认彼此可以访问。
+2. 中继手机打开 App → 主界面「远程唤醒」→「中继服务」。
+3. 打开中继开关，授予通知权限；页面会显示 Tailscale 地址、端口（默认 `8787`）和中继令牌。
+4. 远程手机打开「远程唤醒」→「远程发送」，填写：
+   - 中继地址：`http://100.x.x.x:8787`
+   - 中继令牌：与中继手机显示的令牌一致
+5. 点「读取设备」，选择设备，再点「通过中继唤醒」。
+
+中继手机应保持充电、联网，建议把 App 与 Tailscale 的省电策略都设置为「无限制」，并允许 Tailscale 常驻后台。
+
+### HTTP API
+
+中继服务只开放三个接口，除健康检查外都需要令牌：
+
+```bash
+# 健康检查（无需令牌）
+curl http://100.x.x.x:8787/health
+
+# 读取中继上配置的设备
+curl -H "Authorization: Bearer <token>" \
+  http://100.x.x.x:8787/api/devices
+
+# 唤醒指定设备
+curl -X POST -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"deviceId":"<device-id>"}' \
+  http://100.x.x.x:8787/api/wake
+```
+
+### 安全与网络注意
+
+- 中继服务监听 `0.0.0.0:8787`，依靠令牌鉴权；**不要把端口映射到公网**，只在 Tailscale tailnet 内使用。
+- Tailscale 已对链路加密；HTTP 明文仅存在于 tailnet 内部。建议用 Tailscale ACL 只允许远程手机访问中继的 `8787` 端口。
+- 如果 Tailscale 未连接，页面会显示「未检测到 Tailscale 地址」，打开 Tailscale 后点刷新。
+- 中继手机发送 WOL 时会绑定 Wi-Fi/以太网 Network，避免 Tailscale 的 Exit Node 把广播包带进隧道。
+- 中继是前台服务；如果系统仍然杀后台，需要关闭电池优化并允许自启动。
+
 ## 验证广播是否真的发出
 
 ### 方式一：电脑端监听脚本（无需安装软件）
@@ -142,10 +197,12 @@ adb install -r dist/WolTool-debug.apk
 
 | 权限 | 用途 |
 | --- | --- |
-| `INTERNET` | 发送 UDP 魔术包 |
-| `ACCESS_NETWORK_STATE` | 读取当前网络类型与 IPv4 信息，计算子网广播地址 |
+| `INTERNET` | 发送 UDP 魔术包；远程模式访问中继 HTTP API |
+| `ACCESS_NETWORK_STATE` | 读取当前网络类型与 IPv4 信息，计算子网广播地址，绑定 Wi-Fi/以太网 |
+| `POST_NOTIFICATIONS` | 中继前台服务的常驻通知（Android 13+ 会弹出授权） |
+| `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_SPECIAL_USE` | 保持中继 HTTP 服务在后台运行 |
 
-两项均为普通权限，安装时无需手动授权。App 不申请位置、存储、相机等敏感权限，也不包含任何分析或广告 SDK。
+均为普通权限；通知权限需要用户确认。App 不申请位置、存储、相机等敏感权限，也不包含任何分析或广告 SDK。
 
 ## 项目结构
 
@@ -164,8 +221,15 @@ app/src/main/java/com/qianshi/woltool/
 │   ├── DeviceListScreen.kt      # 设备列表
 │   ├── DeviceEditorScreen.kt    # 添加 / 编辑 / 测试
 │   ├── WidgetConfigScreen.kt    # 小组件配置页
+│   ├── RemoteScreen.kt          # 中继 / 远程发送界面
 │   ├── WakeHelpDialog.kt        # 使用条件与排查
 │   └── theme/                   # Material 3 Expressive 主题
+├── remote/
+│   ├── RelayService.kt          # 中继前台服务
+│   ├── RelayManager.kt          # 中继服务生命周期
+│   ├── RelayHttpServer.kt       # 轻量 HTTP 服务与 WOL 触发
+│   ├── RemoteClient.kt          # 远程端 HTTP 客户端
+│   └── RemoteSettings.kt        # 端口 / 令牌配置
 └── widget/
     ├── WolWidgetProvider.kt     # 小组件点击发送与状态刷新
     └── WidgetConfigActivity.kt  # 小组件选择设备
@@ -185,13 +249,20 @@ app/src/main/java/com/qianshi/woltool/
 确认小组件已绑定设备（显示设备名称而不是「点按配置」），并检查是否被系统省电策略限制后台广播。可在系统设置中允许本应用后台运行。
 
 **换了一个 Wi-Fi / 子网后唤醒失败？**
-广播地址是配置时保存的。编辑设备，点「自动」按当前网络重新生成子网广播地址；手机与目标设备必须处于同一局域网，VPN 可能会改变路由。
+广播地址是配置时保存的。编辑设备，点「自动」按当前网络重新生成子网广播地址；手机与目标设备必须处于同一局域网，VPN 可能会改变路由。远程模式发送时，中继会自动绑定 Wi-Fi/以太网 Network。
+
+**远程手机连不上中继？**
+依次检查：两台手机是否登录同一个 Tailscale 账号 / tailnet；中继开关是否打开；地址是否为中继的 `100.x` Tailscale IP；端口和令牌是否一致；Tailscale ACL 是否允许访问该端口。可以先用 `curl http://100.x.x.x:8787/health` 验证连通性。
+
+**中继运行一段时间后失效？**
+Android 会限制后台服务。请给中继 App 和 Tailscale 关闭电池优化、允许自启动；中继手机需要保持充电和联网。中继服务使用前台通知常驻，但仍可能被部分厂商的省电策略终止。
 
 ## 验证情况
 
-- `./gradlew :app:testDebugUnitTest`：12 个单元测试全部通过（魔术包结构、MAC 解析/掩码、IPv4/广播地址校验）。
-- `./gradlew :app:assembleDebug`：构建成功，产物约 19 MB（debug 包包含 Compose 调试工具）。
+- `./gradlew :app:testDebugUnitTest`：16 个单元测试全部通过（魔术包结构、MAC 解析/掩码、IPv4/广播地址、Tailscale 地址、远程 URL 规范化）。
+- `./gradlew :app:assembleDebug`：构建成功。
 - Android 14（API 34）模拟器实测：添加 / 编辑 / 删除设备、主界面唤醒、小组件添加与选择设备、**强制停止 App 后点按小组件冷启动发送**、删除设备后小组件的降级提示与重新配置。
+- 远程链路实测：中继 HTTP 服务启动后通过 `adb forward` 访问 `/health`、`/api/devices`、`/api/wake`，鉴权、设备列表和 3 个魔术包发送均正常；远程端 UI 读取中继设备并触发唤醒成功。
 - Material 3 Expressive 改版同样在模拟器实测：拖拽发送次数 3 → 8 后保存 / 唤醒正常；页面进入与退出的位移动画（`MotionScheme` 规格）在 Android 14（API 34）与 Android 16（API 36）上均正常。
 - Expressive 组件实测：拖动滑块时手柄与进度同步移动（3 → 9 保存为 `packetCount: 9`）；折叠标题栏在列表滚动时收缩；发送过程中抓到 `LoadingIndicator` 多边形形变与卡片底部波浪进度条；编辑页「发送测试魔术包」的发送中状态同样显示变形加载图标。
 - 工具链已升级到 AGP 9.1.1 + Gradle 9.3.1 + compileSdk 37（Android 17）：`compileSdk 37` 只影响编译，`minSdk 26` / `targetSdk 36` 未变，Android 8.0–16 的机型仍可正常安装运行，Android 16 上已实测安装、启动、编辑、保存与唤醒全流程。

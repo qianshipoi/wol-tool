@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qianshi.woltool.ui.DeviceEditorScreen
 import com.qianshi.woltool.ui.DeviceListScreen
+import com.qianshi.woltool.ui.RemoteScreen
 import com.qianshi.woltool.ui.WakeHelpDialog
 import com.qianshi.woltool.ui.theme.WolToolTheme
 
@@ -50,6 +51,7 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
 
     // null = list, "" = new device, otherwise the id being edited.
     var editorId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showRemote by rememberSaveable { mutableStateOf(false) }
     var showHelp by rememberSaveable { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -62,51 +64,59 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
 
     val motionScheme = MaterialTheme.motionScheme
 
-    AnimatedContent(
-        targetState = editorId,
-        // Motion comes from the Material 3 Expressive motion scheme instead of hand-tuned specs.
-        transitionSpec = {
-            if (targetState != null) {
-                // List → editor: the editor springs in from the right while the list recedes.
-                (slideInHorizontally(motionScheme.defaultSpatialSpec()) { width -> width / 3 } +
-                    fadeIn(motionScheme.defaultEffectsSpec())) togetherWith
-                    (slideOutHorizontally(motionScheme.fastSpatialSpec()) { width -> -width / 10 } +
-                        fadeOut(motionScheme.fastEffectsSpec()) +
-                        scaleOut(motionScheme.fastSpatialSpec(), targetScale = 0.94f))
+    if (showRemote) {
+        RemoteScreen(
+            devices = devices,
+            onBack = { showRemote = false },
+        )
+    } else {
+        AnimatedContent(
+            targetState = editorId,
+            // Motion comes from the Material 3 Expressive motion scheme instead of hand-tuned specs.
+            transitionSpec = {
+                if (targetState != null) {
+                    // List → editor: the editor springs in from the right while the list recedes.
+                    (slideInHorizontally(motionScheme.defaultSpatialSpec()) { width -> width / 3 } +
+                        fadeIn(motionScheme.defaultEffectsSpec())) togetherWith
+                        (slideOutHorizontally(motionScheme.fastSpatialSpec()) { width -> -width / 10 } +
+                            fadeOut(motionScheme.fastEffectsSpec()) +
+                            scaleOut(motionScheme.fastSpatialSpec(), targetScale = 0.94f))
+                } else {
+                    // Editor → list: the editor slides away to the right and springs back out of view.
+                    (slideInHorizontally(motionScheme.fastSpatialSpec()) { width -> -width / 10 } +
+                        fadeIn(motionScheme.fastEffectsSpec()) +
+                        scaleIn(motionScheme.fastSpatialSpec(), initialScale = 0.94f)) togetherWith
+                        (slideOutHorizontally(motionScheme.defaultSpatialSpec()) { width -> width / 3 } +
+                            fadeOut(motionScheme.defaultEffectsSpec()))
+                }
+            },
+            label = "page",
+        ) { targetId ->
+            if (targetId != null) {
+                DeviceEditorScreen(
+                    initial = devices.firstOrNull { it.id == targetId },
+                    onBack = { editorId = null },
+                    onSave = { device ->
+                        viewModel.save(device)
+                        editorId = null
+                    },
+                    onDelete = { device ->
+                        viewModel.delete(device)
+                        editorId = null
+                    },
+                )
             } else {
-                // Editor → list: the editor slides away to the right and springs back out of view.
-                (slideInHorizontally(motionScheme.fastSpatialSpec()) { width -> -width / 10 } +
-                    fadeIn(motionScheme.fastEffectsSpec()) +
-                    scaleIn(motionScheme.fastSpatialSpec(), initialScale = 0.94f)) togetherWith
-                    (slideOutHorizontally(motionScheme.defaultSpatialSpec()) { width -> width / 3 } +
-                        fadeOut(motionScheme.defaultEffectsSpec()))
+                DeviceListScreen(
+                    devices = devices,
+                    wakingIds = wakingIds,
+                    snackbarHostState = snackbarHostState,
+                    onWake = viewModel::wake,
+                    onAdd = { editorId = "" },
+                    onEdit = { device -> editorId = device.id },
+                    onOpenRemote = { showRemote = true },
+                    onShowHelp = { showHelp = true },
+                )
             }
-        },
-        label = "page",
-    ) { targetId ->
-        if (targetId != null) {
-            DeviceEditorScreen(
-                initial = devices.firstOrNull { it.id == targetId },
-                onBack = { editorId = null },
-                onSave = { device ->
-                    viewModel.save(device)
-                    editorId = null
-                },
-                onDelete = { device ->
-                    viewModel.delete(device)
-                    editorId = null
-                },
-            )
-        } else {
-            DeviceListScreen(
-                devices = devices,
-                wakingIds = wakingIds,
-                snackbarHostState = snackbarHostState,
-                onWake = viewModel::wake,
-                onAdd = { editorId = "" },
-                onEdit = { device -> editorId = device.id },
-                onShowHelp = { showHelp = true },
-            )
         }
     }
 

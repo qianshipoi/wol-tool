@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.PowerSettingsNew
@@ -82,6 +83,7 @@ fun DeviceListScreen(
     onWake: (Device) -> Unit,
     onAdd: () -> Unit,
     onEdit: (Device) -> Unit,
+    onOpenRemote: () -> Unit,
     onShowHelp: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -170,6 +172,10 @@ fun DeviceListScreen(
                         modifier = Modifier.animateItem(),
                     )
                 }
+            }
+
+            item(key = "remote") {
+                RemoteEntryCard(onClick = onOpenRemote)
             }
 
             item(key = "help") {
@@ -479,6 +485,58 @@ private fun EmptyStateCard(
         }
         TextButton(onClick = onShowHelp) {
             Text("查看使用条件", color = colors.onPrimaryContainer)
+        }
+    }
+}
+
+@Composable
+private fun RemoteEntryCard(onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Cloud,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "远程唤醒",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = "通过 Tailscale 中继，从外网唤醒设备",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onClick) {
+                Text("配置")
+            }
         }
     }
 }

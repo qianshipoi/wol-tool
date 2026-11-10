@@ -111,7 +111,7 @@ class WolWidgetProvider : AppWidgetProvider() {
             .apply()
         updateWidget(appContext, appWidgetId)
 
-        val result = WolSender().wake(device)
+        val result = WolSender(appContext).wake(device)
         repository.recordWake(device.id, result.success)
 
         widgetPreferences(appContext).edit()

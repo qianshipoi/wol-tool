@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 class WolViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = DeviceRepository.get(application)
-    private val sender = WolSender()
+    private val sender = WolSender(application)
 
     val devices: StateFlow<List<Device>> = repository.devices
 

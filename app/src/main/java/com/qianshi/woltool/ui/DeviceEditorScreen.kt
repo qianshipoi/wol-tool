@@ -84,7 +84,7 @@ fun DeviceEditorScreen(
     onDelete: (Device) -> Unit,
 ) {
     val context = LocalContext.current
-    val sender = remember { WolSender() }
+    val sender = remember { WolSender(context.applicationContext) }
     val scope = rememberCoroutineScope()
     val motionScheme = MaterialTheme.motionScheme
 

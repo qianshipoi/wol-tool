@@ -3,9 +3,12 @@ package com.qianshi.woltool.wol
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LinkProperties
+import android.net.Network
 import android.net.NetworkCapabilities
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.NetworkInterface
+import java.util.Collections
 
 /**
  * Reads the active IPv4 network and derives the subnet broadcast address.
@@ -25,7 +28,9 @@ object NetworkUtils {
     fun current(context: Context): LocalNetwork {
         val manager = context.getSystemService(ConnectivityManager::class.java)
             ?: return LocalNetwork()
-        val network = manager.activeNetwork ?: return LocalNetwork()
+        // Prefer the Wi-Fi/Ethernet network over an active VPN (e.g. Tailscale),
+        // because Wake-on-LAN must be broadcast on the physical LAN.
+        val network = lanNetwork(context) ?: manager.activeNetwork ?: return LocalNetwork()
         val capabilities = manager.getNetworkCapabilities(network)
         val linkProperties = manager.getLinkProperties(network)
         val transportLabel = when {
@@ -52,6 +57,22 @@ object NetworkUtils {
             val address: InetAddress = linkAddress.address
             address is Inet4Address && !address.isLoopbackAddress && !address.isLinkLocalAddress
         }
+
+    /**
+     * Returns the physical Wi-Fi/Ethernet network with an IPv4 address, or null.
+     * Used to bind WOL sockets so a Tailscale/VPN route or exit node cannot
+     * swallow the broadcast.
+     */
+    fun lanNetwork(context: Context): Network? {
+        val manager = context.getSystemService(ConnectivityManager::class.java)
+            ?: return null
+        return manager.allNetworks.firstOrNull { network ->
+            val capabilities = manager.getNetworkCapabilities(network) ?: return@firstOrNull false
+            val isLan = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            isLan && manager.getLinkProperties(network)?.primaryIpv4Address() != null
+        }
+    }
 
     /**
      * Returns the directed broadcast address for an IPv4 address and prefix length.
@@ -81,6 +102,31 @@ object NetworkUtils {
                 part.all { it in '0'..'9' } &&
                 (part.toIntOrNull() ?: -1) in 0..255
         }
+    }
+
+    /**
+     * Finds the phone's Tailscale IPv4 address (CGNAT range 100.64.0.0/10).
+     * Returns null when Tailscale is disconnected or has not assigned an address.
+     */
+    fun tailscaleIpv4(): String? {
+        return try {
+            Collections.list(NetworkInterface.getNetworkInterfaces())
+                .asSequence()
+                .flatMap { networkInterface ->
+                    Collections.list(networkInterface.inetAddresses).asSequence()
+                }
+                .filterIsInstance<Inet4Address>()
+                .firstOrNull { address -> isTailscaleIpv4(address.hostAddress.orEmpty()) }
+                ?.hostAddress
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun isTailscaleIpv4(value: String): Boolean {
+        if (!isValidIpv4(value)) return false
+        val octets = value.trim().split(".").map { it.toInt() }
+        return octets[0] == 100 && octets[1] in 64..127
     }
 
     /**
