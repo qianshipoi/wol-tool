@@ -84,7 +84,7 @@ fun DeviceListScreen(
     wakingIds: Set<String>,
     snackbarHostState: SnackbarHostState,
     onWake: (Device) -> Unit,
-    onAdd: (Rect?, String) -> Unit,
+    onAdd: (Rect?) -> Unit,
     onEdit: (Device) -> Unit,
     onOpenRemote: () -> Unit,
     onShowHelp: () -> Unit,
@@ -134,7 +134,7 @@ fun DeviceListScreen(
                 modifier = Modifier.onGloballyPositioned { coordinates ->
                     addButtonBounds = coordinates.boundsInRoot()
                 },
-                onClick = { onAdd(addButtonBounds, "添加设备") },
+                onClick = { onAdd(addButtonBounds) },
                 icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
                 text = { Text("添加设备") },
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -442,7 +442,7 @@ private fun formatWakeTime(at: Long, nowMillis: Long): String {
 
 @Composable
 private fun EmptyStateCard(
-    onAdd: (Rect?, String) -> Unit,
+    onAdd: (Rect?) -> Unit,
     onShowHelp: () -> Unit,
 ) {
     var addButtonBounds by remember { mutableStateOf<Rect?>(null) }
@@ -488,7 +488,7 @@ private fun EmptyStateCard(
             modifier = Modifier.onGloballyPositioned { coordinates ->
                 addButtonBounds = coordinates.boundsInRoot()
             },
-            onClick = { onAdd(addButtonBounds, "添加第一台设备") },
+            onClick = { onAdd(addButtonBounds) },
             shape = RoundedCornerShape(16.dp),
         ) {
             Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
