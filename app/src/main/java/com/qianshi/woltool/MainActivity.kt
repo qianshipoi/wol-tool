@@ -20,9 +20,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -42,8 +42,6 @@ import com.qianshi.woltool.ui.RemoteScreen
 import com.qianshi.woltool.ui.WakeHelpDialog
 import com.qianshi.woltool.ui.theme.WolToolTheme
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 
 private sealed interface PendingRoute {
     data class Editor(val id: String) : PendingRoute
@@ -80,8 +78,8 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
     var splashOrigin by remember { mutableStateOf(Offset.Unspecified) }
     var pendingRoute by remember { mutableStateOf<PendingRoute?>(null) }
     var pageEntryProgress by remember { mutableFloatStateOf(1f) }
-    var entryJob by remember { mutableStateOf<Job?>(null) }
-    val entryScope = rememberCoroutineScope()
+    var entryRequestToken by remember { mutableIntStateOf(0) }
+    var pendingDefaultEntry by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -92,7 +90,7 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
     }
 
     fun openWithSplash(route: PendingRoute, origin: Offset) {
-        entryJob?.cancel()
+        pendingDefaultEntry = false
         pageEntryProgress = 1f
         pendingRoute = route
         splashOrigin = origin
@@ -100,9 +98,24 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
     }
 
     fun openDefault() {
-        entryJob?.cancel()
+        // Start the slide only after the destination has been composed once.
+        // Otherwise a slow first composition can finish the animation while
+        // the page is still blank, which looks like a flash.
+        pendingDefaultEntry = true
+        entryRequestToken++
         pageEntryProgress = 0f
-        entryJob = entryScope.launch {
+    }
+
+    fun closeOverlay() {
+        pendingDefaultEntry = false
+        pageEntryProgress = 1f
+        editorId = null
+        showRemote = false
+    }
+
+    LaunchedEffect(overlayVisible, entryRequestToken) {
+        if (overlayVisible && pendingDefaultEntry) {
+            pendingDefaultEntry = false
             animate(
                 initialValue = 0f,
                 targetValue = 1f,
@@ -114,13 +127,6 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                 pageEntryProgress = value
             }
         }
-    }
-
-    fun closeOverlay() {
-        entryJob?.cancel()
-        pageEntryProgress = 1f
-        editorId = null
-        showRemote = false
     }
 
     LaunchedEffect(overlayVisible) {
@@ -148,21 +154,14 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
     }
 
     val pageEntry = pageEntryProgress
-    val backgroundEntry = if (splashVisible) 1f else pageEntry
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Keep the list composed underneath for predictive back and for the
-        // color splash that expands over it. During a default page transition
-        // it recedes slightly behind the incoming page.
+        // color splash. It stays fully visible during the default slide-in, so
+        // a slow first composition cannot produce a blank/gray flash.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    val scale = 0.97f + 0.03f * backgroundEntry
-                    scaleX = scale
-                    scaleY = scale
-                    alpha = 0.85f + 0.15f * backgroundEntry
-                }
                 .then(
                     if (overlayVisible) {
                         Modifier.clearAndSetSemantics { }
@@ -195,14 +194,12 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
         }
 
         if (overlayVisible) {
-            // A scrim dims the list during the default page entry and while the
-            // user holds a predictive-back gesture.
+            // A scrim dims the list only while the user holds a predictive-back
+            // gesture.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = 0.18f * maxOf(1f - backgroundEntry, backProgress)
-                    }
+                    .graphicsLayer { alpha = 0.18f * backProgress }
                     .background(Color.Black)
                     .pointerInput(Unit) {
                         awaitPointerEventScope {
@@ -220,26 +217,18 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                     .fillMaxSize()
                     .graphicsLayer {
                         // The add flow uses the color splash; other entries use
-                        // a standard page transition: fade + slide from the
-                        // right, with a slight scale and rounded corners.
-                        alpha = pageEntry
-                        translationX = (1f - pageEntry) * size.width * 0.18f
-                        val entryScale = 0.96f + 0.04f * pageEntry
+                        // a standard opaque page slide from the right. The page
+                        // is already fully opaque while it is off-screen, so a
+                        // slow first layout never flashes a blank page.
+                        translationX = (1f - pageEntry) * size.width
+                        val entryScale = 0.98f + 0.02f * pageEntry
                         val backScale = 1f - 0.16f * backProgress
                         val scale = entryScale * backScale
                         scaleX = scale
                         scaleY = scale
-                        shape = RoundedCornerShape(
-                            maxOf(
-                                28.dp.toPx() * (1f - pageEntry),
-                                24.dp.toPx() * backProgress,
-                            ).toDp(),
-                        )
+                        shape = RoundedCornerShape(24.dp * backProgress)
                         clip = true
-                        shadowElevation = maxOf(
-                            18.dp.toPx() * (1f - pageEntry),
-                            24.dp.toPx() * backProgress,
-                        )
+                        shadowElevation = 24.dp.toPx() * backProgress
                     },
             ) {
                 if (showRemote) {
