@@ -107,7 +107,7 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                 initialValue = 0f,
                 targetValue = 1f,
                 animationSpec = tween(
-                    durationMillis = 240,
+                    durationMillis = 320,
                     easing = FastOutSlowInEasing,
                 ),
             ) { value, _ ->
@@ -147,12 +147,22 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
         }
     }
 
+    val pageEntry = pageEntryProgress
+    val backgroundEntry = if (splashVisible) 1f else pageEntry
+
     Box(modifier = Modifier.fillMaxSize()) {
         // Keep the list composed underneath for predictive back and for the
-        // color splash that expands over it.
+        // color splash that expands over it. During a default page transition
+        // it recedes slightly behind the incoming page.
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer {
+                    val scale = 0.97f + 0.03f * backgroundEntry
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = 0.85f + 0.15f * backgroundEntry
+                }
                 .then(
                     if (overlayVisible) {
                         Modifier.clearAndSetSemantics { }
@@ -185,13 +195,14 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
         }
 
         if (overlayVisible) {
-            val pageEntry = pageEntryProgress
-            // A scrim dims the list while the user holds a predictive-back
-            // gesture. It also blocks input to the background screen.
+            // A scrim dims the list during the default page entry and while the
+            // user holds a predictive-back gesture.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = 0.18f * backProgress }
+                    .graphicsLayer {
+                        alpha = 0.18f * maxOf(1f - backgroundEntry, backProgress)
+                    }
                     .background(Color.Black)
                     .pointerInput(Unit) {
                         awaitPointerEventScope {
@@ -209,16 +220,26 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                     .fillMaxSize()
                     .graphicsLayer {
                         // The add flow uses the color splash; other entries use
-                        // a short default fade + scale instead of the splash.
+                        // a standard page transition: fade + slide from the
+                        // right, with a slight scale and rounded corners.
                         alpha = pageEntry
+                        translationX = (1f - pageEntry) * size.width * 0.18f
                         val entryScale = 0.96f + 0.04f * pageEntry
                         val backScale = 1f - 0.16f * backProgress
                         val scale = entryScale * backScale
                         scaleX = scale
                         scaleY = scale
-                        shape = RoundedCornerShape(24.dp * backProgress)
+                        shape = RoundedCornerShape(
+                            maxOf(
+                                28.dp.toPx() * (1f - pageEntry),
+                                24.dp.toPx() * backProgress,
+                            ).toDp(),
+                        )
                         clip = true
-                        shadowElevation = 24.dp.toPx() * backProgress
+                        shadowElevation = maxOf(
+                            18.dp.toPx() * (1f - pageEntry),
+                            24.dp.toPx() * backProgress,
+                        )
                     },
             ) {
                 if (showRemote) {
