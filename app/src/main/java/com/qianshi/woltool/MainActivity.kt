@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,18 +26,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import kotlin.math.hypot
+import kotlin.math.min
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qianshi.woltool.ui.DeviceEditorScreen
@@ -71,20 +70,35 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
 
     val overlayVisible = editorId != null || showRemote
     var backProgress by remember { mutableFloatStateOf(0f) }
-    var revealOrigin by remember { mutableStateOf(Offset.Unspecified) }
-    val openProgress = remember { Animatable(0f) }
+    var revealBounds by remember { mutableStateOf<Rect?>(null) }
+    val maskProgress = remember { Animatable(0f) }
+    val maskAlpha = remember { Animatable(1f) }
+    var maskVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(overlayVisible) {
         if (overlayVisible) {
-            openProgress.animateTo(
+            maskVisible = true
+            maskProgress.snapTo(0f)
+            maskAlpha.snapTo(1f)
+            maskProgress.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(
-                    durationMillis = 280,
+                    durationMillis = 320,
                     easing = FastOutSlowInEasing,
                 ),
             )
+            maskAlpha.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 180,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+            maskVisible = false
         } else {
-            openProgress.snapTo(0f)
+            maskVisible = false
+            maskProgress.snapTo(0f)
+            maskAlpha.snapTo(1f)
         }
     }
 
@@ -152,16 +166,16 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                 wakingIds = wakingIds,
                 snackbarHostState = snackbarHostState,
                 onWake = viewModel::wake,
-                onAdd = { origin ->
-                    revealOrigin = origin
+                onAdd = { bounds ->
+                    revealBounds = bounds
                     editorId = ""
                 },
                 onEdit = { device ->
-                    revealOrigin = Offset.Unspecified
+                    revealBounds = null
                     editorId = device.id
                 },
                 onOpenRemote = {
-                    revealOrigin = Offset.Unspecified
+                    revealBounds = null
                     showRemote = true
                 },
                 onShowHelp = { showHelp = true },
@@ -175,9 +189,7 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        // Darken the list while the new page expands, and again
-                        // while the user holds a predictive-back gesture.
-                        alpha = 0.18f * maxOf(openProgress.value, backProgress)
+                        alpha = 0.18f * backProgress
                     }
                     .background(Color.Black)
                     .pointerInput(Unit) {
@@ -191,48 +203,20 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                     },
             )
 
+            val pageVisible = maskProgress.value >= 0.999f
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        // Predictive back shrinks the page from full size. The
-                        // entry reveal is a circle clipped in drawWithContent.
+                        // The page appears only after the colored mask has
+                        // covered the screen. Predictive back then shrinks it.
+                        alpha = if (pageVisible) 1f else 0f
                         val scale = 1f - 0.16f * backProgress
                         scaleX = scale
                         scaleY = scale
                         shape = RoundedCornerShape(24.dp * backProgress)
                         clip = true
                         shadowElevation = 24.dp.toPx() * backProgress
-                    }
-                    .drawWithContent {
-                        val entry = openProgress.value
-                        if (entry >= 0.999f) {
-                            drawContent()
-                        } else {
-                            val center = if (revealOrigin == Offset.Unspecified) {
-                                Offset(size.width / 2f, size.height / 2f)
-                            } else {
-                                revealOrigin
-                            }
-                            val maxRadius = hypot(
-                                maxOf(center.x, size.width - center.x),
-                                maxOf(center.y, size.height - center.y),
-                            )
-                            val radius = maxRadius * entry
-                            val revealPath = Path().apply {
-                                addOval(
-                                    Rect(
-                                        center.x - radius,
-                                        center.y - radius,
-                                        center.x + radius,
-                                        center.y + radius,
-                                    ),
-                                )
-                            }
-                            clipPath(revealPath) {
-                                this@drawWithContent.drawContent()
-                            }
-                        }
                     },
             ) {
                 if (showRemote) {
@@ -253,6 +237,44 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                             closeOverlay()
                         },
                         handleSystemBack = false,
+                    )
+                }
+            }
+
+            if (maskVisible) {
+                val maskColor = MaterialTheme.colorScheme.primary
+                val maskProgressValue = maskProgress.value
+                val maskAlphaValue = maskAlpha.value
+                val currentRevealBounds = revealBounds
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = maskAlphaValue }
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent(PointerEventPass.Initial)
+                                        .changes
+                                        .forEach { change -> change.consume() }
+                                }
+                            }
+                        },
+                ) {
+                    val center = currentRevealBounds?.center
+                        ?: Offset(size.width / 2f, size.height / 2f)
+                    val startRadius = currentRevealBounds?.let {
+                        min(it.width, it.height) / 2f
+                    } ?: 0f
+                    val maxRadius = hypot(
+                        maxOf(center.x, size.width - center.x),
+                        maxOf(center.y, size.height - center.y),
+                    ) + 2.dp.toPx()
+                    val radius = startRadius +
+                        (maxRadius - startRadius) * maskProgressValue
+                    drawCircle(
+                        color = maskColor,
+                        radius = radius,
+                        center = center,
                     )
                 }
             }
