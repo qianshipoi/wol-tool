@@ -58,8 +58,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontFamily
@@ -81,7 +84,7 @@ fun DeviceListScreen(
     wakingIds: Set<String>,
     snackbarHostState: SnackbarHostState,
     onWake: (Device) -> Unit,
-    onAdd: () -> Unit,
+    onAdd: (Offset) -> Unit,
     onEdit: (Device) -> Unit,
     onOpenRemote: () -> Unit,
     onShowHelp: () -> Unit,
@@ -101,6 +104,8 @@ fun DeviceListScreen(
             nowMillis = System.currentTimeMillis()
         }
     }
+
+    var addButtonCenter by remember { mutableStateOf(Offset.Unspecified) }
 
     // Expressive app bar: the large title collapses into the small title while scrolling.
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -126,7 +131,10 @@ fun DeviceListScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = onAdd,
+                modifier = Modifier.onGloballyPositioned { coordinates ->
+                    addButtonCenter = coordinates.boundsInRoot().center
+                },
+                onClick = { onAdd(addButtonCenter) },
                 icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
                 text = { Text("添加设备") },
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -434,9 +442,10 @@ private fun formatWakeTime(at: Long, nowMillis: Long): String {
 
 @Composable
 private fun EmptyStateCard(
-    onAdd: () -> Unit,
+    onAdd: (Offset) -> Unit,
     onShowHelp: () -> Unit,
 ) {
+    var addButtonCenter by remember { mutableStateOf(Offset.Unspecified) }
     val colors = MaterialTheme.colorScheme
     val brush = Brush.linearGradient(
         colors = listOf(colors.primaryContainer, colors.secondaryContainer),
@@ -476,7 +485,10 @@ private fun EmptyStateCard(
         )
         Spacer(Modifier.height(20.dp))
         Button(
-            onClick = onAdd,
+            modifier = Modifier.onGloballyPositioned { coordinates ->
+                addButtonCenter = coordinates.boundsInRoot().center
+            },
+            onClick = { onAdd(addButtonCenter) },
             shape = RoundedCornerShape(16.dp),
         ) {
             Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))

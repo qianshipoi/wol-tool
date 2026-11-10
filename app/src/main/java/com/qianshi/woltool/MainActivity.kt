@@ -25,12 +25,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import kotlin.math.hypot
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qianshi.woltool.ui.DeviceEditorScreen
@@ -65,6 +71,7 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
 
     val overlayVisible = editorId != null || showRemote
     var backProgress by remember { mutableFloatStateOf(0f) }
+    var revealOrigin by remember { mutableStateOf(Offset.Unspecified) }
     val openProgress = remember { Animatable(0f) }
 
     LaunchedEffect(overlayVisible) {
@@ -145,9 +152,18 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                 wakingIds = wakingIds,
                 snackbarHostState = snackbarHostState,
                 onWake = viewModel::wake,
-                onAdd = { editorId = "" },
-                onEdit = { device -> editorId = device.id },
-                onOpenRemote = { showRemote = true },
+                onAdd = { origin ->
+                    revealOrigin = origin
+                    editorId = ""
+                },
+                onEdit = { device ->
+                    revealOrigin = Offset.Unspecified
+                    editorId = device.id
+                },
+                onOpenRemote = {
+                    revealOrigin = Offset.Unspecified
+                    showRemote = true
+                },
                 onShowHelp = { showHelp = true },
             )
         }
@@ -159,10 +175,9 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        // Fade in while the page enters, and darken the list
+                        // Darken the list while the new page expands, and again
                         // while the user holds a predictive-back gesture.
-                        val entry = openProgress.value
-                        alpha = 0.18f * maxOf(1f - entry, backProgress)
+                        alpha = 0.18f * maxOf(openProgress.value, backProgress)
                     }
                     .background(Color.Black)
                     .pointerInput(Unit) {
@@ -180,27 +195,44 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        val entry = openProgress.value
-                        // Page-entry: rise slightly from below and scale up to
-                        // full size. Predictive back then shrinks the page from
-                        // that full-size state.
-                        val scale = (0.94f + 0.06f * entry) *
-                            (1f - 0.16f * backProgress)
+                        // Predictive back shrinks the page from full size. The
+                        // entry reveal is a circle clipped in drawWithContent.
+                        val scale = 1f - 0.16f * backProgress
                         scaleX = scale
                         scaleY = scale
-                        translationY = (1f - entry) * 28.dp.toPx()
-                        alpha = entry
-                        shape = RoundedCornerShape(
-                            maxOf(
-                                28.dp.toPx() * (1f - entry),
-                                24.dp.toPx() * backProgress,
-                            ).toDp(),
-                        )
+                        shape = RoundedCornerShape(24.dp * backProgress)
                         clip = true
-                        shadowElevation = maxOf(
-                            12.dp.toPx() * (1f - entry),
-                            24.dp.toPx() * backProgress,
-                        )
+                        shadowElevation = 24.dp.toPx() * backProgress
+                    }
+                    .drawWithContent {
+                        val entry = openProgress.value
+                        if (entry >= 0.999f) {
+                            drawContent()
+                        } else {
+                            val center = if (revealOrigin == Offset.Unspecified) {
+                                Offset(size.width / 2f, size.height / 2f)
+                            } else {
+                                revealOrigin
+                            }
+                            val maxRadius = hypot(
+                                maxOf(center.x, size.width - center.x),
+                                maxOf(center.y, size.height - center.y),
+                            )
+                            val radius = maxRadius * entry
+                            val revealPath = Path().apply {
+                                addOval(
+                                    Rect(
+                                        center.x - radius,
+                                        center.y - radius,
+                                        center.x + radius,
+                                        center.y + radius,
+                                    ),
+                                )
+                            }
+                            clipPath(revealPath) {
+                                this@drawWithContent.drawContent()
+                            }
+                        }
                     },
             ) {
                 if (showRemote) {
