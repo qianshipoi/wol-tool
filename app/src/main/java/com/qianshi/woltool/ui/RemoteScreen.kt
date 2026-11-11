@@ -28,6 +28,8 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material.icons.rounded.QrCode2
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -71,6 +73,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qianshi.woltool.data.Device
 import com.qianshi.woltool.remote.RelayManager
 import com.qianshi.woltool.remote.RelayService
+import com.qianshi.woltool.remote.RelayShare
 import com.qianshi.woltool.remote.RemoteClient
 import com.qianshi.woltool.remote.RemoteSettings
 import com.qianshi.woltool.wol.NetworkUtils
@@ -109,6 +112,11 @@ fun RemoteScreen(
     var remoteLoading by remember { mutableStateOf(false) }
     var remoteMessage by remember { mutableStateOf<String?>(null) }
     var remoteIsError by remember { mutableStateOf(false) }
+
+    // 中继侧生成的分享码；只在分享对话框打开期间持有。
+    var sharePayload by remember { mutableStateOf<RelayShare?>(null) }
+    var showShareDialog by rememberSaveable { mutableStateOf(false) }
+    var showScanner by rememberSaveable { mutableStateOf(false) }
 
     fun showMessage(message: String) {
         scope.launch { snackbarHostState.showSnackbar(message) }
@@ -188,6 +196,43 @@ fun RemoteScreen(
         showMessage("令牌已复制")
     }
 
+    /**
+     * Builds the shareable relay snapshot and opens the QR dialog.
+     *
+     * The payload must describe the *saved* configuration, otherwise the remote
+     * phone would scan an address/port/token that the running relay does not use.
+     */
+    fun openShareDialog() {
+        val port = portText.toIntOrNull()
+        if (port == null || port !in 1024..65535) {
+            showMessage("端口需在 1024–65535 之间")
+            return
+        }
+        if (relayToken.length < 8) {
+            showMessage("令牌至少需要 8 个字符")
+            return
+        }
+        val saved = RemoteSettings.relayConfig(context)
+        if (saved.port != port || saved.token != relayToken) {
+            showMessage("请先保存中继配置，再生成二维码")
+            return
+        }
+        var host = tailscaleIp
+        if (host == null) {
+            tailscaleIp = NetworkUtils.tailscaleIpv4()
+            host = tailscaleIp
+        }
+        // Tailscale is the intended path, but a LAN-only setup still works: fall
+        // back to the Wi-Fi/Ethernet IPv4 address so the QR is never empty.
+        val address = host ?: NetworkUtils.current(context).ipAddress
+        if (address == null) {
+            showMessage("未检测到 Tailscale 或局域网地址，无法生成二维码")
+            return
+        }
+        sharePayload = RelayShare(url = "http://$address:$port", token = relayToken)
+        showShareDialog = true
+    }
+
     fun openBatterySettings() {
         runCatching {
             context.startActivity(
@@ -197,15 +242,15 @@ fun RemoteScreen(
         }.onFailure { showMessage("无法打开电池设置，请手动在系统设置中配置") }
     }
 
-    fun fetchRemoteDevices() {
+    fun fetchRemoteDevices(baseUrl: String = relayUrl, token: String = remoteToken) {
         if (remoteLoading) return
-        val base = client.normalizeBaseUrl(relayUrl)
+        val base = client.normalizeBaseUrl(baseUrl)
         if (base == null) {
             remoteIsError = true
             remoteMessage = "中继地址格式不正确"
             return
         }
-        if (remoteToken.isBlank()) {
+        if (token.isBlank()) {
             remoteIsError = true
             remoteMessage = "请填写中继令牌"
             return
@@ -213,7 +258,7 @@ fun RemoteScreen(
         remoteLoading = true
         remoteMessage = null
         scope.launch {
-            val result = client.listDevices(base, remoteToken.trim())
+            val result = client.listDevices(base, token.trim())
             remoteLoading = false
             if (result.success) {
                 val list = result.value.orEmpty()
@@ -225,7 +270,7 @@ fun RemoteScreen(
                 } else {
                     "已连接中继，读取到 ${list.size} 台设备"
                 }
-                RemoteSettings.setRemoteConfig(context, base, remoteToken.trim())
+                RemoteSettings.setRemoteConfig(context, base, token.trim())
             } else {
                 remoteDevices = emptyList()
                 selectedRemoteId = null
@@ -325,6 +370,7 @@ fun RemoteScreen(
                     onCopyToken = ::copyRelayToken,
                     onRegenerateToken = { relayToken = RemoteSettings.generateToken() },
                     onOpenBatterySettings = ::openBatterySettings,
+                    onShareQr = ::openShareDialog,
                 )
             } else {
                 RemoteModeContent(
@@ -340,6 +386,7 @@ fun RemoteScreen(
                     onFetch = ::fetchRemoteDevices,
                     onWake = ::wakeRemoteDevice,
                     onSelect = { selectedRemoteId = it },
+                    onScanQr = { showScanner = true },
                     onSave = {
                         RemoteSettings.setRemoteConfig(
                             context,
@@ -359,6 +406,37 @@ fun RemoteScreen(
             )
             Spacer(Modifier.size(24.dp))
         }
+    }
+
+    val share = sharePayload
+    if (showShareDialog && share != null) {
+        RelayShareDialog(
+            share = share,
+            deviceCount = devices.size,
+            onDismiss = { showShareDialog = false },
+        )
+    }
+
+    if (showScanner) {
+        QrScannerScreen(
+            onResult = { raw ->
+                showScanner = false
+                RelayShare.decode(raw)
+                    .onSuccess { decoded ->
+                        relayUrl = decoded.url
+                        remoteToken = decoded.token
+                        showMessage("已从二维码填入中继地址与令牌")
+                        // Fill first, then immediately try to read the devices so
+                        // the scanned code is trusted end-to-end.
+                        fetchRemoteDevices(decoded.url, decoded.token)
+                    }
+                    .onFailure { error ->
+                        remoteIsError = true
+                        remoteMessage = error.message ?: "二维码内容无法识别"
+                    }
+            },
+            onDismiss = { showScanner = false },
+        )
     }
 }
 
@@ -410,6 +488,7 @@ private fun RelayModeContent(
     onCopyToken: () -> Unit,
     onRegenerateToken: () -> Unit,
     onOpenBatterySettings: () -> Unit,
+    onShareQr: () -> Unit,
 ) {
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -549,6 +628,19 @@ private fun RelayModeContent(
                 Spacer(Modifier.weight(1f))
                 Text("${deviceCount} 台设备", style = MaterialTheme.typography.bodySmall)
             }
+            OutlinedButton(
+                onClick = onShareQr,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.QrCode2,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("生成分享二维码")
+            }
             Button(
                 onClick = onSave,
                 modifier = Modifier.fillMaxWidth(),
@@ -603,6 +695,7 @@ private fun RemoteModeContent(
     onFetch: () -> Unit,
     onWake: () -> Unit,
     onSelect: (String) -> Unit,
+    onScanQr: () -> Unit,
     onSave: () -> Unit,
 ) {
     Card(
@@ -617,7 +710,22 @@ private fun RemoteModeContent(
                 .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("远程连接", style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "远程连接",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onScanQr) {
+                    Icon(
+                        imageVector = Icons.Rounded.QrCodeScanner,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("扫描二维码")
+                }
+            }
             OutlinedTextField(
                 value = relayUrl,
                 onValueChange = onUrlChange,

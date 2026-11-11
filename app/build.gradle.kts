@@ -13,8 +13,8 @@ android {
         applicationId = "com.qianshi.woltool"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
     }
 
     buildTypes {
@@ -59,6 +59,15 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+
+    // 二维码：纯 Java 生成与解析，不依赖任何 Google 服务或在线 SDK
+    implementation("com.google.zxing:core:3.5.4")
+
+    // 二维码扫描：相机预览 + 帧分析
+    implementation("androidx.camera:camera-core:1.6.2")
+    implementation("androidx.camera:camera-camera2:1.6.2")
+    implementation("androidx.camera:camera-lifecycle:1.6.2")
+    implementation("androidx.camera:camera-view:1.6.2")
 
     testImplementation("junit:junit:4.13.2")
 
