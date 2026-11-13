@@ -2,6 +2,7 @@ package com.qianshi.woltool.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,12 +22,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,9 +65,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +92,7 @@ fun DeviceListScreen(
     onWake: (Device) -> Unit,
     onAdd: (Rect?) -> Unit,
     onEdit: (Device) -> Unit,
+    onDelete: (Device) -> Unit,
     onOpenRemote: () -> Unit,
     onShowHelp: () -> Unit,
 ) {
@@ -106,6 +113,10 @@ fun DeviceListScreen(
     }
 
     var addButtonBounds by remember { mutableStateOf<Rect?>(null) }
+
+    // 长按设备卡片后待确认删除的设备；null 表示没有待删除项。
+    var pendingDelete by remember { mutableStateOf<Device?>(null) }
+    val haptics = LocalHapticFeedback.current
 
     // Expressive app bar: the large title collapses into the small title while scrolling.
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -177,6 +188,10 @@ fun DeviceListScreen(
                         waking = device.id in wakingIds,
                         onWake = { onWake(device) },
                         onEdit = { onEdit(device) },
+                        onLongPress = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            pendingDelete = device
+                        },
                         modifier = Modifier.animateItem(),
                     )
                 }
@@ -190,6 +205,18 @@ fun DeviceListScreen(
                 HelpFooterCard(onShowHelp = onShowHelp)
             }
         }
+    }
+
+    val deleteTarget = pendingDelete
+    if (deleteTarget != null) {
+        DeleteDeviceDialog(
+            device = deleteTarget,
+            onDismiss = { pendingDelete = null },
+            onConfirm = {
+                pendingDelete = null
+                onDelete(deleteTarget)
+            },
+        )
     }
 }
 
@@ -289,12 +316,15 @@ private fun SectionHeader(count: Int) {
         }
         Spacer(Modifier.weight(1f))
         Text(
-            text = "点按卡片编辑",
+            text = "点按编辑 · 长按删除",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
+
+/** 设备卡片的圆角形状；点击水波纹也必须裁到这个形状里。 */
+private val DeviceCardShape = RoundedCornerShape(24.dp)
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -304,13 +334,21 @@ private fun DeviceCard(
     waking: Boolean,
     onWake: () -> Unit,
     onEdit: () -> Unit,
+    onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onEdit),
-        shape = RoundedCornerShape(24.dp),
+            // 先裁成卡片圆角，再挂点击手势：否则 combinedClickable 的水波纹
+            // 画在 Card 自己的圆角裁剪之外，按下时四角会冒出一块矩形底色。
+            .clip(DeviceCardShape)
+            .combinedClickable(
+                onClick = onEdit,
+                onLongClickLabel = "删除设备",
+                onLongClick = onLongPress,
+            ),
+        shape = DeviceCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -418,6 +456,55 @@ private fun DeviceCard(
             }
         }
     }
+}
+
+/**
+ * 长按设备卡片后的删除确认对话框。
+ *
+ * 删除会同时影响桌面小组件，因此明确提示不可恢复、小组件需重新选择设备。
+ */
+@Composable
+private fun DeleteDeviceDialog(
+    device: Device,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.DeleteOutline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+            )
+        },
+        title = { Text("删除设备？") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("将删除「${device.name}」（${device.mac}）。")
+                Text(
+                    "删除后无法恢复；已添加到桌面的小组件会显示「设备已删除」，需要重新选择设备。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) {
+                Text("删除")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
 }
 
 private fun lastWakeLabel(device: Device, nowMillis: Long): String {

@@ -185,6 +185,7 @@ private fun WolApp(viewModel: WolViewModel = viewModel()) {
                     openDefault()
                     editorId = device.id
                 },
+                onDelete = viewModel::delete,
                 onOpenRemote = {
                     openDefault()
                     showRemote = true
